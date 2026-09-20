@@ -42,8 +42,10 @@ dependencies = [
 # Install manually: pip install xformers
 # Not auto-installed because it requires a matching CUDA + torch version.
 xformers = ["xformers"]
+test = ["pytest>=8"]
 dev = [
     "ruff>=0.4.0",
+    "pytest>=8",
 ]
 
 [project.scripts]
@@ -59,6 +61,14 @@ where = ["."]
 include = ["weellm*"]
 
 
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+    "gpu: requires a CUDA device",
+    "needs_diffusers_main: requires diffusers >= 0.41.0 (Qwen-Image 2.1)",
+]
 
 [tool.ruff]
 line-length = 120

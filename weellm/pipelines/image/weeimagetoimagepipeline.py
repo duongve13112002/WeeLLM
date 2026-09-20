@@ -20,6 +20,9 @@ IMG2IMG_MAPPING = {
     "FluxPipeline": "FluxImg2ImgPipeline",
     "Flux2KleinPipeline": "Flux2KleinPipeline", 
     "FluxFillPipeline": "FluxFillPipeline",
+    # Qwen-Image 2.1 serves text-to-image and image-conditioned editing from the
+    # same class, so edit mode maps onto itself rather than a separate *EditPipeline.
+    "QwenImage21Pipeline": "QwenImage21Pipeline",
 }
 
 class WeeImageToImagePipeline(WeeBasePipeline):
