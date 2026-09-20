@@ -145,7 +145,7 @@ class Qwen3VLForConditionalGenerationStreamer:
         if hasattr(self._model, "lm_head"):
             lm_head_is_resident = any("lm_head" in k for k in _get_resident_keys(self._seeker))
             if not lm_head_is_resident:
-                self._model.lm_head = _PassThroughLMHead()
+                self._model.lm_head = _PassThroughLMHead().eval()
                 logger.debug("[WeeLLM] lm_head is not resident — replaced with a pass-through.")
 
     def _load_resident_modules(self):

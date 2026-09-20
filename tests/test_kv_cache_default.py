@@ -108,3 +108,63 @@ def test_logs_the_reason(wrapped_recording, caplog):
         wrapper(prompt="a cat", height=64, width=64)
 
     assert any("use_kv_cache=False" in record.message for record in caplog.records)
+
+
+# --------------------------------------------------------------- guidance_scale
+
+
+class _TrueCfgPipeline:
+    """Qwen-Image 2.1 shape: true_cfg_scale, and no guidance_scale at all."""
+
+    vae_scale_factor = 16
+
+    def __init__(self):
+        self.received = None
+
+    def __call__(self, prompt=None, height=None, width=None, true_cfg_scale=1.0,
+                 use_kv_cache=True):
+        self.received = dict(
+            prompt=prompt, height=height, width=width,
+            true_cfg_scale=true_cfg_scale, use_kv_cache=use_kv_cache,
+        )
+        return "result"
+
+
+def test_guidance_scale_is_forwarded_to_true_cfg_scale():
+    """--guidance_scale must not raise TypeError on a pipeline that renamed it."""
+    inner = _TrueCfgPipeline()
+    wrapper = WeeBasePipeline(inner)
+
+    wrapper(prompt="a cat", height=64, width=64, guidance_scale=3.5)
+
+    assert inner.received["true_cfg_scale"] == 3.5
+
+
+def test_explicit_true_cfg_scale_wins_over_guidance_scale():
+    inner = _TrueCfgPipeline()
+    wrapper = WeeBasePipeline(inner)
+
+    wrapper(prompt="a cat", height=64, width=64, guidance_scale=3.5, true_cfg_scale=7.0)
+
+    assert inner.received["true_cfg_scale"] == 7.0
+
+
+def test_guidance_scale_untouched_when_the_pipeline_accepts_it():
+    """Pipelines that have both names must keep receiving guidance_scale verbatim."""
+
+    class _BothNames:
+        vae_scale_factor = 8
+
+        def __init__(self):
+            self.received = None
+
+        def __call__(self, prompt=None, height=None, width=None,
+                     guidance_scale=1.0, true_cfg_scale=1.0):
+            self.received = dict(guidance_scale=guidance_scale, true_cfg_scale=true_cfg_scale)
+            return "result"
+
+    inner = _BothNames()
+    WeeBasePipeline(inner)(prompt="a cat", height=64, width=64, guidance_scale=3.5)
+
+    assert inner.received["guidance_scale"] == 3.5
+    assert inner.received["true_cfg_scale"] == 1.0

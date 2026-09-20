@@ -187,6 +187,23 @@ class WeeBasePipeline:
         # VRAM calibration pass cannot see it either, so default it off on tight budgets.
         # Unlike the two switches above this one only supplies a default — an explicit
         # user choice is always honoured.
+        # Qwen-Image 2.1 expresses classifier-free guidance as `true_cfg_scale` and has no
+        # `guidance_scale` at all. The text-to-image path does not filter unsupported
+        # kwargs, so `--guidance_scale` would raise TypeError there. Forward it instead.
+        if (
+            "guidance_scale" in kwargs
+            and "guidance_scale" not in sig.parameters
+            and "true_cfg_scale" in sig.parameters
+        ):
+            _guidance = kwargs.pop("guidance_scale")
+            if "true_cfg_scale" not in kwargs:
+                kwargs["true_cfg_scale"] = _guidance
+                logger.info(
+                    "[WeeLLM] %s expresses guidance as 'true_cfg_scale' — forwarding "
+                    "guidance_scale=%s to it.",
+                    self._pipeline.__class__.__name__, _guidance,
+                )
+
         if "use_kv_cache" in sig.parameters:
             if "use_kv_cache" not in kwargs:
                 logger.info(
@@ -196,12 +213,13 @@ class WeeBasePipeline:
                 kwargs["use_kv_cache"] = False
         elif "use_kv_cache" in kwargs:
             # `--use_kv_cache` is a global CLI flag, so it reaches pipelines that know
-            # nothing about it. Drop it rather than letting it raise a TypeError.
-            logger.debug(
-                "[WeeLLM] %s does not accept 'use_kv_cache' — dropping it.",
+            # nothing about it. Drop it rather than letting it raise a TypeError, but say
+            # so out loud — the user asked for something this model cannot do.
+            kwargs.pop("use_kv_cache")
+            logger.warning(
+                "[WeeLLM] %s does not support prefix KV caching — ignoring use_kv_cache.",
                 self._pipeline.__class__.__name__,
             )
-            kwargs.pop("use_kv_cache")
 
 
         # --- Memory Overhead Estimation ---
@@ -1026,11 +1044,23 @@ class WeeBasePipeline:
                     applied = []
 
                     if hasattr(vae, "tile_sample_min_height") and hasattr(vae, "tile_sample_min_width"):
-                        vae.tile_sample_min_height = vae_tile_size
-                        vae.tile_sample_min_width  = vae_tile_size
+                        # These VAEs derive their latent-space tile geometry by integer-dividing
+                        # the sample-space values by the spatial compression ratio, so too small a
+                        # tile makes the latent stride round down to zero and the tiling loop then
+                        # slices empty tiles. Keep both at least one latent unit wide.
+                        ratio = int(getattr(vae, "spatial_compression_ratio", 1) or 1)
+                        tile = max(vae_tile_size, max(2 * ratio, 8))
+                        if tile != vae_tile_size:
+                            logger.warning(
+                                "      -> [WeeLLM] vae_tile_size=%d is too small for this VAE "
+                                "(%dx spatial compression); using %d instead.",
+                                vae_tile_size, ratio, tile,
+                            )
+                        vae.tile_sample_min_height = tile
+                        vae.tile_sample_min_width  = tile
                         applied.append("tile_sample_min_height/width")
                         # Keep the 0.75 stride/tile ratio these VAEs ship with (192/256).
-                        stride = max(8, int(vae_tile_size * 0.75))
+                        stride = min(tile, max(int(tile * 0.75), ratio))
                         for _stride_attr in ("tile_sample_stride_height", "tile_sample_stride_width"):
                             if hasattr(vae, _stride_attr):
                                 setattr(vae, _stride_attr, stride)
